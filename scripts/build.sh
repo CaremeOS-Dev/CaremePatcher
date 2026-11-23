@@ -103,21 +103,23 @@ mkdir -p "$(dirname "$out")"
       -o "$out" "$root/src/xtc-patch.c" "$root/src/xtc_zopfli_parallel.c" \
       "${sources[@]}" "$objdir/kptools_main.o" "${libs[@]}"
 
-if [ "${NO_EMBED:-0}" != "1" ]; then
-    echo "[3/3] appending kpimg blob"
-    python3 "$root/scripts/embed_kpimg.py" "$out" "$blob"
-else
-    echo "[3/3] skipped (NO_EMBED=1)"
-fi
-
 # Android libraries go straight into an APK, so strip them like the manager's
-# other prebuilt .so files (the trailer survives: it is data, not a section).
+# other prebuilt .so files.  This has to happen BEFORE the blob is appended:
+# strip rewrites the file from its section headers and would drop the trailing
+# blob + trailer.
 if [ "$target" = "android-armv7" ] || [ "$target" = "android-arm64" ]; then
     strip_bin="$tc/bin/llvm-strip"
     if [ -x "$strip_bin" ]; then
         "$strip_bin" --strip-all "$out"
         echo "stripped with $strip_bin"
     fi
+fi
+
+if [ "${NO_EMBED:-0}" != "1" ]; then
+    echo "[3/3] appending kpimg blob"
+    python3 "$root/scripts/embed_kpimg.py" "$out" "$blob"
+else
+    echo "[3/3] skipped (NO_EMBED=1)"
 fi
 
 ls -l "$out"
