@@ -110,5 +110,15 @@ else
     echo "[3/3] skipped (NO_EMBED=1)"
 fi
 
+# Android libraries go straight into an APK, so strip them like the manager's
+# other prebuilt .so files (the trailer survives: it is data, not a section).
+if [ "$target" = "android-armv7" ] || [ "$target" = "android-arm64" ]; then
+    strip_bin="$tc/bin/llvm-strip"
+    if [ -x "$strip_bin" ]; then
+        "$strip_bin" --strip-all "$out"
+        echo "stripped with $strip_bin"
+    fi
+fi
+
 ls -l "$out"
 md5sum "$out" 2>/dev/null || md5 "$out"
