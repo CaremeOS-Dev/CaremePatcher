@@ -1,0 +1,29 @@
+# kptools translation units that xtc-patch links in-process (main() is renamed
+# to kptools_main).  Paths are relative to the KernelPatch checkout's tools/.
+common.c
+image.c
+insn.c
+kallsym.c
+order.c
+patch.c
+symbol.c
+x86_64.c
+kpm.c
+bootimg.c
+lib/sha/sha256.c
+lib/sha/sha1.c
+lib/bz2/blocksort.c
+lib/bz2/bzlib.c
+lib/bz2/compress.c
+lib/bz2/crctable.c
+lib/bz2/decompress.c
+lib/bz2/huffman.c
+lib/bz2/randtable.c
+lib/lz4/lz4.c
+lib/lz4/lz4hc.c
+lib/lz4/lz4file.c
+lib/lz4/lz4frame.c
+lib/lz4/xxhash.c
+lib/xz/xz_crc32.c
+lib/xz/xz_dec_lzma2.c
+lib/xz/xz_dec_stream.c

@@ -1,0 +1,4 @@
+zopfli -- vendored from https://github.com/google/zopfli (Apache-2.0)
+
+Files copied verbatim except zgzip.c, which is the command line front end we do
+not build.  Keep this copy in sync with upstream when updating.

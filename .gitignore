@@ -1,0 +1,15 @@
+# build outputs
+out/
+*.o
+*.obj
+
+# KernelPatch is cloned/pinned by CI; keep local checkouts out of the tree
+third_party/KernelPatch/
+
+# Windows
+*.exe.bak
+Thumbs.db
+
+# python bytecode
+__pycache__/
+*.pyc

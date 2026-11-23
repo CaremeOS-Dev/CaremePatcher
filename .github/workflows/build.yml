@@ -1,0 +1,189 @@
+name: build
+
+# CaremePatcher -- the standalone boot-image patcher for BBK/XTC (CaremeOS)
+# watches.  Builds the Windows tool, the Android in-installer library and a
+# Linux binary, and publishes them on tags.
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # KernelPatch that the tool links against (kptools is driven in-process).
+  # Pin the commit so a KernelPatch change cannot break this build silently;
+  # bump it together with kpimg/kpimg-canonical.bin.
+  KP_REPO: https://github.com/CaremeOS-Dev/KernelPatch
+  KP_REF: 8357a40191ef8eeb57446066d2410b3ea3bddbd0
+
+jobs:
+  linux:
+    name: xtc-patch (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential zlib1g-dev python3 git
+
+      - name: Fetch KernelPatch
+        run: |
+          git clone --quiet "$KP_REPO" "$RUNNER_TEMP/KernelPatch"
+          cd "$RUNNER_TEMP/KernelPatch"
+          git checkout --quiet "$KP_REF"
+          git log --oneline -1
+          # tools/preset.h is generated from kernel/include/preset.h
+          TARGET_COMPILE=placeholder make -C kernel hdr
+
+      - name: Build
+        env:
+          XTC_KP_DIR: ${{ runner.temp }}/KernelPatch
+        run: ./scripts/build.sh linux
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          file out/xtc-patch
+          ./out/xtc-patch -h | head -3
+          ./out/xtc-patch -h | grep -q 'KernelPatch'
+          python3 scripts/check_embed.py out/xtc-patch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xtc-patch-linux
+          path: out/xtc-patch
+
+  windows:
+    name: xtc-patch.exe (mingw, static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the mingw cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential mingw-w64 libz-mingw-w64-dev python3 git
+          x86_64-w64-mingw32-gcc --version | head -1
+
+      - name: Fetch KernelPatch
+        run: |
+          git clone --quiet "$KP_REPO" "$RUNNER_TEMP/KernelPatch"
+          cd "$RUNNER_TEMP/KernelPatch"
+          git checkout --quiet "$KP_REF"
+          git log --oneline -1
+          TARGET_COMPILE=placeholder make -C kernel hdr
+
+      - name: Build
+        env:
+          XTC_KP_DIR: ${{ runner.temp }}/KernelPatch
+        run: ./scripts/build.sh windows
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          file out/xtc-patch.exe
+          file out/xtc-patch.exe | grep -q 'PE32'
+          python3 scripts/check_embed.py out/xtc-patch.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xtc-patch-windows
+          path: out/xtc-patch.exe
+
+  android:
+    name: libxtcpatch.so (armeabi-v7a, arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3 git
+          git clone --quiet "$KP_REPO" "$RUNNER_TEMP/KernelPatch"
+          cd "$RUNNER_TEMP/KernelPatch"
+          git checkout --quiet "$KP_REF"
+          TARGET_COMPILE=placeholder make -C kernel hdr
+
+      - name: Setup Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27b
+
+      - name: Build
+        env:
+          XTC_KP_DIR: ${{ runner.temp }}/KernelPatch
+        run: |
+          set -euo pipefail
+          ./scripts/build.sh android-armv7 \
+            --ndk "${{ steps.ndk.outputs.ndk-path }}" \
+            -o out/libxtcpatch-armeabi-v7a.so
+          ./scripts/build.sh android-arm64 \
+            --ndk "${{ steps.ndk.outputs.ndk-path }}" \
+            -o out/libxtcpatch-arm64-v8a.so
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          for f in out/libxtcpatch-armeabi-v7a.so out/libxtcpatch-arm64-v8a.so; do
+            file "$f"
+            case "$f" in
+              *armeabi-v7a*) file "$f" | grep -q 'ELF 32-bit' ;;
+              *arm64-v8a*)   file "$f" | grep -q 'ELF 64-bit' ;;
+            esac
+            readelf -hd "$f" | grep -E 'Type:|SONAME' | head -2
+          done
+          python3 scripts/check_embed.py out/libxtcpatch-*.so
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libxtcpatch
+          path: out/libxtcpatch-*.so
+
+  release:
+    name: Publish release
+    needs: [ linux, windows, android ]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd out
+          ls -l
+          md5sum xtc-patch xtc-patch.exe libxtcpatch-armeabi-v7a.so libxtcpatch-arm64-v8a.so > MD5SUMS
+          cat MD5SUMS
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+          artifacts: |
+            out/xtc-patch.exe
+            out/xtc-patch
+            out/libxtcpatch-armeabi-v7a.so
+            out/libxtcpatch-arm64-v8a.so
+            out/MD5SUMS
+          generateReleaseNotes: true
+          replacesArtifacts: true
+          allowUpdates: true
